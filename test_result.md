@@ -263,3 +263,5 @@
 ## agent_communication:
     - agent: "main"
       message: "Lab Journal System is fully implemented and production-ready. All backend and frontend components are built, dependencies installed, and services running. This is a complete enterprise-grade laboratory management system ready for enhancements or new features."
+    - agent: "testing"
+      message: "I've tested the login functionality as requested. Found and fixed an issue in the log_activity function that was preventing successful login. The issue was in how the client IP address and user agent were being extracted from the request object. After fixing this, all login and authentication tests pass successfully. The JWT token is generated correctly, can be validated, and allows access to protected endpoints. The admin credentials (admin@lab.com / admin123) now work properly."
