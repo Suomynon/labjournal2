@@ -327,6 +327,204 @@ class LabJournalAPITester:
         )
         return success
 
+    def test_create_experiment(self):
+        """Test creating a new experiment"""
+        if not self.admin_token:
+            print("⚠️ Skipping test: No admin token available")
+            return False
+        
+        experiment_data = {
+            "title": "pH Buffer Preparation",
+            "date": datetime.now().isoformat(),
+            "description": "Testing the preparation of pH buffer solutions",
+            "procedure": "1. Prepare solutions\n2. Mix in correct ratios\n3. Verify pH with meter",
+            "chemicals_used": [],
+            "equipment_used": ["pH meter", "Beakers", "Magnetic stirrer"],
+            "observations": "Solution turned clear after mixing",
+            "results": "pH measured at 7.2, within expected range",
+            "conclusions": "Buffer preparation successful",
+            "external_links": ["https://example.com/buffer-protocol"]
+        }
+        
+        # If we have a chemical ID, add it to the experiment
+        if self.test_chemical_id:
+            experiment_data["chemicals_used"] = [
+                {
+                    "chemical_id": self.test_chemical_id,
+                    "chemical_name": "Test Chemical",
+                    "quantity_used": 10.5,
+                    "unit": "g",
+                    "available_quantity": 100
+                }
+            ]
+        
+        success, response = self.run_test(
+            "Create Experiment",
+            "POST",
+            "experiments",
+            201,  # Will also accept 200
+            data=experiment_data,
+            token=self.admin_token
+        )
+        
+        if success and "id" in response:
+            self.test_experiment_id = response["id"]
+            print(f"Experiment ID: {self.test_experiment_id}")
+        return success
+    
+    def test_get_experiments(self):
+        """Test getting all experiments"""
+        if not self.token:
+            print("⚠️ Skipping test: No token available")
+            return False
+        
+        success, response = self.run_test(
+            "Get All Experiments",
+            "GET",
+            "experiments",
+            200,
+            token=self.token
+        )
+        
+        if success:
+            print(f"Retrieved {len(response)} experiments")
+            if response:
+                print(f"First experiment: {response[0].get('title')}")
+        return success
+    
+    def test_get_experiment_by_id(self):
+        """Test getting an experiment by ID"""
+        if not self.token or not hasattr(self, 'test_experiment_id'):
+            print("⚠️ Skipping test: No token or experiment ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Get Experiment by ID",
+            "GET",
+            f"experiments/{self.test_experiment_id}",
+            200,
+            token=self.token
+        )
+        
+        if success:
+            print(f"Experiment title: {response.get('title')}")
+            print(f"Experiment status: {'Completed' if response.get('results') else 'In Progress'}")
+        return success
+    
+    def test_search_experiments(self):
+        """Test searching experiments"""
+        if not self.token:
+            print("⚠️ Skipping test: No token available")
+            return False
+        
+        success, response = self.run_test(
+            "Search Experiments",
+            "GET",
+            "experiments",
+            200,
+            token=self.token,
+            params={"search": "Buffer"}
+        )
+        
+        if success:
+            print(f"Found {len(response)} experiments matching 'Buffer'")
+        return success
+    
+    def test_filter_experiments_by_date(self):
+        """Test filtering experiments by date range"""
+        if not self.token:
+            print("⚠️ Skipping test: No token available")
+            return False
+        
+        yesterday = (datetime.now() - timedelta(days=1)).isoformat()
+        tomorrow = (datetime.now() + timedelta(days=1)).isoformat()
+        
+        success, response = self.run_test(
+            "Filter Experiments by Date",
+            "GET",
+            "experiments",
+            200,
+            token=self.token,
+            params={"date_from": yesterday, "date_to": tomorrow}
+        )
+        
+        if success:
+            print(f"Found {len(response)} experiments in date range")
+        return success
+    
+    def test_update_experiment(self):
+        """Test updating an experiment"""
+        if not self.admin_token or not hasattr(self, 'test_experiment_id'):
+            print("⚠️ Skipping test: No admin token or experiment ID available")
+            return False
+        
+        update_data = {
+            "title": "Updated pH Buffer Preparation",
+            "results": "pH measured at 7.4, within expected range. Experiment completed.",
+            "conclusions": "Buffer preparation successful with improved accuracy"
+        }
+        
+        success, response = self.run_test(
+            "Update Experiment",
+            "PUT",
+            f"experiments/{self.test_experiment_id}",
+            200,
+            data=update_data,
+            token=self.admin_token
+        )
+        
+        if success:
+            print(f"Experiment updated: {response.get('title')}")
+        return success
+    
+    def test_get_available_chemicals(self):
+        """Test getting available chemicals for experiments"""
+        if not self.token:
+            print("⚠️ Skipping test: No token available")
+            return False
+        
+        success, response = self.run_test(
+            "Get Available Chemicals for Experiments",
+            "GET",
+            "experiments/chemicals/available",
+            200,
+            token=self.token
+        )
+        
+        if success:
+            print(f"Retrieved {len(response)} available chemicals")
+        return success
+    
+    def test_delete_experiment(self):
+        """Test deleting an experiment"""
+        if not self.admin_token or not hasattr(self, 'test_experiment_id'):
+            print("⚠️ Skipping test: No admin token or experiment ID available")
+            return False
+        
+        success, _ = self.run_test(
+            "Delete Experiment",
+            "DELETE",
+            f"experiments/{self.test_experiment_id}",
+            200,  # Some APIs use 204, others 200
+            token=self.admin_token
+        )
+        return success
+    
+    def test_verify_experiment_deletion(self):
+        """Verify that the experiment was deleted"""
+        if not self.token or not hasattr(self, 'test_experiment_id'):
+            print("⚠️ Skipping test: No token or experiment ID available")
+            return False
+        
+        success, _ = self.run_test(
+            "Verify Experiment Deletion",
+            "GET",
+            f"experiments/{self.test_experiment_id}",
+            404,
+            token=self.token
+        )
+        return success
+    
     def run_all_tests(self):
         """Run all tests in sequence"""
         tests = [
@@ -342,6 +540,15 @@ class LabJournalAPITester:
             self.test_search_chemicals,
             self.test_update_chemical,
             self.test_guest_cannot_add_chemical,
+            self.test_create_experiment,
+            self.test_get_experiments,
+            self.test_get_experiment_by_id,
+            self.test_search_experiments,
+            self.test_filter_experiments_by_date,
+            self.test_update_experiment,
+            self.test_get_available_chemicals,
+            self.test_delete_experiment,
+            self.test_verify_experiment_deletion,
             self.test_delete_chemical,
             self.test_verify_deletion
         ]
