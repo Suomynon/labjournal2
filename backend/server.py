@@ -769,6 +769,110 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_db():
+    # Initialize default permissions
+    default_permissions = [
+        # Chemical permissions
+        {"name": "read_chemicals", "description": "View chemical inventory", "category": "chemicals"},
+        {"name": "write_chemicals", "description": "Add and edit chemicals", "category": "chemicals"},
+        {"name": "delete_chemicals", "description": "Delete chemicals", "category": "chemicals"},
+        
+        # Experiment permissions
+        {"name": "read_experiments", "description": "View experiments", "category": "experiments"},
+        {"name": "write_experiments", "description": "Create and edit experiments", "category": "experiments"},
+        {"name": "delete_experiments", "description": "Delete experiments", "category": "experiments"},
+        
+        # User management permissions
+        {"name": "read_users", "description": "View user information", "category": "users"},
+        {"name": "manage_users", "description": "Create, edit, and delete users", "category": "users"},
+        
+        # Role management permissions
+        {"name": "manage_roles", "description": "Create and manage roles and permissions", "category": "roles"},
+        
+        # System permissions
+        {"name": "view_dashboard", "description": "Access dashboard", "category": "system"},
+        {"name": "system_admin", "description": "Full system administration", "category": "system"},
+        
+        # Legacy permissions for backward compatibility
+        {"name": "read", "description": "General read access", "category": "legacy"},
+        {"name": "write", "description": "General write access", "category": "legacy"},
+        {"name": "delete", "description": "General delete access", "category": "legacy"},
+    ]
+    
+    for perm_data in default_permissions:
+        existing_perm = await db.permissions.find_one({"name": perm_data["name"]})
+        if not existing_perm:
+            permission = Permission(**perm_data)
+            await db.permissions.insert_one(permission.dict())
+    
+    # Initialize default roles
+    default_roles = [
+        {
+            "name": "admin",
+            "display_name": "Administrator", 
+            "description": "Full system access with all permissions",
+            "permissions": [
+                "read_chemicals", "write_chemicals", "delete_chemicals",
+                "read_experiments", "write_experiments", "delete_experiments", 
+                "read_users", "manage_users", "manage_roles",
+                "view_dashboard", "system_admin",
+                "read", "write", "delete"  # Legacy permissions
+            ],
+            "is_system": True
+        },
+        {
+            "name": "researcher",
+            "display_name": "Researcher",
+            "description": "Can manage chemicals and experiments",
+            "permissions": [
+                "read_chemicals", "write_chemicals", "delete_chemicals",
+                "read_experiments", "write_experiments", "delete_experiments",
+                "view_dashboard",
+                "read", "write", "delete"  # Legacy permissions
+            ],
+            "is_system": True
+        },
+        {
+            "name": "student", 
+            "display_name": "Student",
+            "description": "Can view and create chemicals and experiments",
+            "permissions": [
+                "read_chemicals", "write_chemicals",
+                "read_experiments", "write_experiments",
+                "view_dashboard", 
+                "read", "write"  # Legacy permissions
+            ],
+            "is_system": True
+        },
+        {
+            "name": "guest",
+            "display_name": "Guest",
+            "description": "Read-only access to chemicals and experiments", 
+            "permissions": [
+                "read_chemicals", "read_experiments", "view_dashboard",
+                "read"  # Legacy permissions
+            ],
+            "is_system": True
+        }
+    ]
+    
+    for role_data in default_roles:
+        existing_role = await db.roles.find_one({"name": role_data["name"]})
+        if not existing_role:
+            role = Role(**role_data)
+            await db.roles.insert_one(role.dict())
+        else:
+            # Update system roles to ensure they have latest permissions
+            if existing_role.get("is_system", False):
+                await db.roles.update_one(
+                    {"name": role_data["name"]},
+                    {"$set": {
+                        "permissions": role_data["permissions"],
+                        "description": role_data["description"],
+                        "display_name": role_data["display_name"],
+                        "updated_at": datetime.utcnow()
+                    }}
+                )
+
     # Create default admin user if not exists
     admin_user = await db.users.find_one({"email": "admin@lab.com"})
     if not admin_user:
