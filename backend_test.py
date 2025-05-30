@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 class LabJournalAPITester:
     def __init__(self):
-        self.base_url = "https://97e456da-068a-40b2-be4b-b782e0702ff1.preview.emergentagent.com/api"
+        self.base_url = "https://fff3734c-632d-41fe-8205-197918166f9b.preview.emergentagent.com/api"
         self.admin_email = "admin@lab.com"
         self.admin_password = "admin123"
         self.test_user_email = f"test_user_{uuid.uuid4().hex[:8]}@example.com"
