@@ -99,7 +99,7 @@ class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     email: EmailStr
     hashed_password: str
-    role: UserRole = UserRole.GUEST
+    role: str = "guest"  # Changed from UserRole to str for dynamic roles
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = True
 
