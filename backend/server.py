@@ -106,7 +106,7 @@ class User(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
-    role: UserRole = UserRole.GUEST
+    role: str = "guest"  # Changed from UserRole to str for dynamic roles
 
 class UserLogin(BaseModel):
     email: EmailStr
