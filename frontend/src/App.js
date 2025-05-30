@@ -1410,6 +1410,366 @@ const ChemicalForm = ({ chemical, onClose, onSave }) => {
   );
 };
 
+const RoleManagement = () => {
+  const [roles, setRoles] = useState([]);
+  const [permissions, setPermissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingRole, setEditingRole] = useState(null);
+
+  useEffect(() => {
+    fetchRoles();
+    fetchPermissions();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await axios.get(`${API}/roles`);
+      setRoles(response.data);
+    } catch (error) {
+      console.error('Failed to fetch roles:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchPermissions = async () => {
+    try {
+      const response = await axios.get(`${API}/permissions`);
+      setPermissions(response.data);
+    } catch (error) {
+      console.error('Failed to fetch permissions:', error);
+    }
+  };
+
+  const deleteRole = async (roleName, displayName) => {
+    if (!window.confirm(`Are you sure you want to delete role "${displayName}"?`)) return;
+    
+    try {
+      await axios.delete(`${API}/roles/${roleName}`);
+      fetchRoles();
+    } catch (error) {
+      console.error('Failed to delete role:', error);
+      alert(error.response?.data?.detail || 'Failed to delete role');
+    }
+  };
+
+  // Group permissions by category
+  const permissionsByCategory = permissions.reduce((acc, perm) => {
+    if (!acc[perm.category]) acc[perm.category] = [];
+    acc[perm.category].push(perm);
+    return acc;
+  }, {});
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-800">Role Management</h2>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+        >
+          Create Role
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {roles.map((role) => (
+          <div key={role.name} className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${
+            role.is_system ? 'border-blue-500' : 'border-green-500'
+          }`}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-lg font-semibold text-gray-900">{role.display_name}</h3>
+                  {role.is_system && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      System
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-600 mt-1">{role.description}</p>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setEditingRole(role)}
+                  className="text-indigo-600 hover:text-indigo-900 text-sm"
+                >
+                  Edit
+                </button>
+                {!role.is_system && (
+                  <button
+                    onClick={() => deleteRole(role.name, role.display_name)}
+                    className="text-red-600 hover:text-red-900 text-sm"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Permissions ({role.permissions.length})</h4>
+              <div className="flex flex-wrap gap-1">
+                {role.permissions.slice(0, 8).map((permName) => {
+                  const perm = permissions.find(p => p.name === permName);
+                  return (
+                    <span
+                      key={permName}
+                      className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                        perm?.category === 'chemicals' ? 'bg-blue-100 text-blue-800' :
+                        perm?.category === 'experiments' ? 'bg-purple-100 text-purple-800' :
+                        perm?.category === 'users' ? 'bg-green-100 text-green-800' :
+                        perm?.category === 'roles' ? 'bg-indigo-100 text-indigo-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {perm?.description || permName}
+                    </span>
+                  );
+                })}
+                {role.permissions.length > 8 && (
+                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                    +{role.permissions.length - 8} more
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {(showAddForm || editingRole) && (
+        <RoleForm
+          role={editingRole}
+          permissions={permissions}
+          permissionsByCategory={permissionsByCategory}
+          onClose={() => {
+            setShowAddForm(false);
+            setEditingRole(null);
+          }}
+          onSave={() => {
+            fetchRoles();
+            setShowAddForm(false);
+            setEditingRole(null);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+const RoleForm = ({ role, permissions, permissionsByCategory, onClose, onSave }) => {
+  const [formData, setFormData] = useState({
+    name: role?.name || '',
+    display_name: role?.display_name || '',
+    description: role?.description || '',
+    permissions: role?.permissions || []
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      if (role) {
+        // Update existing role
+        await axios.put(`${API}/roles/${role.name}`, {
+          display_name: formData.display_name,
+          description: formData.description,
+          permissions: formData.permissions
+        });
+      } else {
+        // Create new role
+        await axios.post(`${API}/roles`, formData);
+      }
+      
+      onSave();
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to save role');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const togglePermission = (permissionName) => {
+    const newPermissions = formData.permissions.includes(permissionName)
+      ? formData.permissions.filter(p => p !== permissionName)
+      : [...formData.permissions, permissionName];
+    
+    setFormData({ ...formData, permissions: newPermissions });
+  };
+
+  const toggleCategoryPermissions = (category) => {
+    const categoryPerms = permissionsByCategory[category] || [];
+    const categoryPermNames = categoryPerms.map(p => p.name);
+    const hasAllCategoryPerms = categoryPermNames.every(p => formData.permissions.includes(p));
+    
+    let newPermissions;
+    if (hasAllCategoryPerms) {
+      // Remove all category permissions
+      newPermissions = formData.permissions.filter(p => !categoryPermNames.includes(p));
+    } else {
+      // Add all category permissions
+      newPermissions = [...new Set([...formData.permissions, ...categoryPermNames])];
+    }
+    
+    setFormData({ ...formData, permissions: newPermissions });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-bold text-gray-800">
+            {role ? `Edit Role: ${role.display_name}` : 'Create New Role'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 text-2xl"
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Role Name *</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., lab_manager"
+                required
+                disabled={!!role} // Cannot change name of existing role
+              />
+              {!role && (
+                <p className="text-xs text-gray-500 mt-1">
+                  Use lowercase with underscores (e.g., lab_manager)
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Display Name *</label>
+              <input
+                type="text"
+                value={formData.display_name}
+                onChange={(e) => setFormData({...formData, display_name: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="e.g., Lab Manager"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              rows="2"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="Describe the purpose and scope of this role..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-4">
+              Permissions ({formData.permissions.length} selected)
+            </label>
+            
+            <div className="space-y-4">
+              {Object.entries(permissionsByCategory).map(([category, perms]) => {
+                const categoryPermNames = perms.map(p => p.name);
+                const hasAllCategoryPerms = categoryPermNames.every(p => formData.permissions.includes(p));
+                const hasSomeCategoryPerms = categoryPermNames.some(p => formData.permissions.includes(p));
+
+                return (
+                  <div key={category} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-gray-900 capitalize">{category}</h4>
+                      <button
+                        type="button"
+                        onClick={() => toggleCategoryPermissions(category)}
+                        className={`text-xs px-3 py-1 rounded ${
+                          hasAllCategoryPerms 
+                            ? 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200' 
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {hasAllCategoryPerms ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {perms.map((permission) => (
+                        <label
+                          key={permission.name}
+                          className="flex items-center space-x-2 cursor-pointer p-2 rounded hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formData.permissions.includes(permission.name)}
+                            onChange={() => togglePermission(permission.name)}
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-gray-900">
+                              {permission.description}
+                            </span>
+                            <p className="text-xs text-gray-500">{permission.name}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : 'Save Role'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
