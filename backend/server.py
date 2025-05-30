@@ -343,6 +343,91 @@ async def login(user_credentials: UserLogin):
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return UserResponse(**current_user.dict())
 
+# Activity Log Management Routes
+@api_router.get("/admin/activity-logs", response_model=List[ActivityLogResponse])
+async def get_activity_logs(
+    skip: int = 0,
+    limit: int = 100,
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    user_email: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    """Get activity logs with filtering options"""
+    query = {}
+    
+    if action:
+        query["action"] = action
+    if resource_type:
+        query["resource_type"] = resource_type
+    if user_email:
+        query["user_email"] = {"$regex": user_email, "$options": "i"}
+    
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            date_query["$gte"] = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+        if date_to:
+            date_query["$lte"] = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+        query["timestamp"] = date_query
+    
+    logs = await db.activity_logs.find(query).sort("timestamp", -1).skip(skip).limit(limit).to_list(1000)
+    return [ActivityLogResponse(**log) for log in logs]
+
+@api_router.get("/admin/activity-logs/{log_id}", response_model=ActivityLogResponse)
+async def get_activity_log_detail(
+    log_id: str,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    """Get detailed activity log entry"""
+    log = await db.activity_logs.find_one({"id": log_id})
+    if not log:
+        raise HTTPException(status_code=404, detail="Activity log not found")
+    return ActivityLogResponse(**log)
+
+@api_router.get("/admin/activity-logs/stats/summary")
+async def get_activity_log_stats(
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    """Get activity log statistics"""
+    # Total logs
+    total_logs = await db.activity_logs.count_documents({})
+    
+    # Recent activity (last 24 hours)
+    yesterday = datetime.utcnow() - timedelta(days=1)
+    recent_activity = await db.activity_logs.count_documents({
+        "timestamp": {"$gte": yesterday}
+    })
+    
+    # Activity by action type
+    action_stats = await db.activity_logs.aggregate([
+        {"$group": {"_id": "$action", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]).to_list(100)
+    
+    # Activity by resource type
+    resource_stats = await db.activity_logs.aggregate([
+        {"$group": {"_id": "$resource_type", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]).to_list(100)
+    
+    # Most active users
+    user_stats = await db.activity_logs.aggregate([
+        {"$group": {"_id": "$user_email", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]).to_list(10)
+    
+    return {
+        "total_logs": total_logs,
+        "recent_activity": recent_activity,
+        "action_stats": action_stats,
+        "resource_stats": resource_stats,
+        "most_active_users": user_stats
+    }
+
 # Role and Permission Management Routes
 @api_router.get("/permissions", response_model=List[Permission])
 async def get_all_permissions(current_user: User = Depends(check_permission("manage_roles"))):
