@@ -115,7 +115,7 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    role: UserRole
+    role: str  # Changed from UserRole to str
     created_at: datetime
     is_active: bool
 
