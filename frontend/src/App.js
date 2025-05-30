@@ -3099,6 +3099,7 @@ const Navigation = ({ currentView, setCurrentView }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', permission: 'read' },
     { id: 'chemicals', label: 'Chemical Inventory', permission: 'read' },
+    { id: 'experiments', label: 'Experiments', permission: 'read' },
     { id: 'users', label: 'User Management', permission: 'manage_users' }
   ];
 
