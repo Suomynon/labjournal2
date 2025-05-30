@@ -428,6 +428,11 @@ async def create_user_by_admin(
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Validate role exists
+    role = await db.roles.find_one({"name": user_data.role})
+    if not role:
+        raise HTTPException(status_code=400, detail=f"Role '{user_data.role}' does not exist")
+    
     hashed_password = hash_password(user_data.password)
     user = User(
         email=user_data.email,
