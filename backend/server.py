@@ -85,6 +85,46 @@ class UnitType(str, Enum):
     VOLUME = "volume"  # ml, L
     AMOUNT = "amount"  # pieces, units
 
+class Experiment(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    date: datetime = Field(default_factory=datetime.utcnow)
+    description: Optional[str] = None
+    procedure: Optional[str] = None  # Text description or reference to procedure guide
+    chemicals_used: List[Dict[str, Any]] = []  # [{"chemical_id": "id", "quantity_used": 10, "unit": "ml"}]
+    equipment_used: List[str] = []  # List of equipment names/IDs
+    observations: Optional[str] = None
+    results: Optional[str] = None
+    conclusions: Optional[str] = None
+    external_links: List[str] = []  # URLs to related resources
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: str  # user id
+
+class ExperimentCreate(BaseModel):
+    title: str
+    date: Optional[datetime] = None
+    description: Optional[str] = None
+    procedure: Optional[str] = None
+    chemicals_used: List[Dict[str, Any]] = []
+    equipment_used: List[str] = []
+    observations: Optional[str] = None
+    results: Optional[str] = None
+    conclusions: Optional[str] = None
+    external_links: List[str] = []
+
+class ExperimentUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[datetime] = None
+    description: Optional[str] = None
+    procedure: Optional[str] = None
+    chemicals_used: Optional[List[Dict[str, Any]]] = None
+    equipment_used: Optional[List[str]] = None
+    observations: Optional[str] = None
+    results: Optional[str] = None
+    conclusions: Optional[str] = None
+    external_links: Optional[List[str]] = None
+
 class Chemical(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
