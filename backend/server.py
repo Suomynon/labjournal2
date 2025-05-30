@@ -322,7 +322,7 @@ async def register(user_data: UserCreate):
     return UserResponse(**user.dict())
 
 @api_router.post("/auth/login", response_model=Token)
-async def login(user_credentials: UserLogin):
+async def login(user_credentials: UserLogin, request: Request):
     user = await db.users.find_one({"email": user_credentials.email})
     if not user or not verify_password(user_credentials.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
@@ -332,6 +332,16 @@ async def login(user_credentials: UserLogin):
     
     access_token = create_access_token(data={"sub": user["id"]})
     user_response = UserResponse(**user)
+    
+    # Log successful login
+    user_obj = User(**user)
+    await log_activity(
+        user=user_obj,
+        action="LOGIN",
+        resource_type="Authentication",
+        summary=f"User logged in successfully",
+        request=request
+    )
     
     return Token(
         access_token=access_token,
