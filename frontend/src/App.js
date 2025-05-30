@@ -151,11 +151,7 @@ const LoginForm = ({ onToggle }) => {
             Register here
           </button>
         </p>
-        <div className="mt-4 p-3 bg-gray-100 rounded text-sm text-gray-600">
-          <strong>Demo Login:</strong><br />
-          Email: admin@lab.com<br />
-          Password: admin123
-        </div>
+
       </div>
     </div>
   );
