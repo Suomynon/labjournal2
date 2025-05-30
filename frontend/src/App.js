@@ -1410,6 +1410,398 @@ const ChemicalForm = ({ chemical, onClose, onSave }) => {
   );
 };
 
+const AdminPanel = () => {
+  const [currentTab, setCurrentTab] = useState('overview');
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      const response = await axios.get(`${API}/admin/activity-logs/stats/summary`);
+      setStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch admin stats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const tabs = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
+    { id: 'users', label: 'User Management', icon: '👥' },
+    { id: 'roles', label: 'Role Management', icon: '🔐' },
+    { id: 'activity', label: 'Activity Log', icon: '📋' }
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-lg shadow-md">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8 px-6">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentTab(tab.id)}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  currentTab === tab.id
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <span className="mr-2">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div className="p-6">
+          {currentTab === 'overview' && <AdminOverview stats={stats} loading={loading} />}
+          {currentTab === 'users' && <UserManagement />}
+          {currentTab === 'roles' && <RoleManagement />}
+          {currentTab === 'activity' && <ActivityLog />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AdminOverview = ({ stats, loading }) => {
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-900">Admin Overview</h2>
+      
+      {stats && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-blue-50 rounded-lg p-6 border-l-4 border-blue-500">
+              <h3 className="text-lg font-semibold text-blue-800">Total Activity Logs</h3>
+              <p className="text-3xl font-bold text-blue-600">{stats.total_logs}</p>
+            </div>
+
+            <div className="bg-green-50 rounded-lg p-6 border-l-4 border-green-500">
+              <h3 className="text-lg font-semibold text-green-800">Recent Activity (24h)</h3>
+              <p className="text-3xl font-bold text-green-600">{stats.recent_activity}</p>
+            </div>
+
+            <div className="bg-purple-50 rounded-lg p-6 border-l-4 border-purple-500">
+              <h3 className="text-lg font-semibold text-purple-800">Action Types</h3>
+              <p className="text-3xl font-bold text-purple-600">{stats.action_stats?.length || 0}</p>
+            </div>
+
+            <div className="bg-orange-50 rounded-lg p-6 border-l-4 border-orange-500">
+              <h3 className="text-lg font-semibold text-orange-800">Resource Types</h3>
+              <p className="text-3xl font-bold text-orange-600">{stats.resource_stats?.length || 0}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Action Statistics */}
+            <div className="bg-white border rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Activity by Action Type</h3>
+              <div className="space-y-3">
+                {stats.action_stats?.slice(0, 5).map((stat) => (
+                  <div key={stat._id} className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700">{stat._id}</span>
+                    <span className="text-sm text-gray-600">{stat.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Most Active Users */}
+            <div className="bg-white border rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Most Active Users</h3>
+              <div className="space-y-3">
+                {stats.most_active_users?.slice(0, 5).map((stat) => (
+                  <div key={stat._id} className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700">{stat._id}</span>
+                    <span className="text-sm text-gray-600">{stat.count} actions</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const ActivityLog = () => {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    action: '',
+    resource_type: '',
+    user_email: '',
+    date_from: '',
+    date_to: ''
+  });
+  const [expandedLog, setExpandedLog] = useState(null);
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [filters]);
+
+  const fetchLogs = async () => {
+    try {
+      const params = {};
+      Object.keys(filters).forEach(key => {
+        if (filters[key]) params[key] = filters[key];
+      });
+      
+      const response = await axios.get(`${API}/admin/activity-logs`, { params });
+      setLogs(response.data);
+    } catch (error) {
+      console.error('Failed to fetch activity logs:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showLogDetails = async (logId) => {
+    try {
+      const response = await axios.get(`${API}/admin/activity-logs/${logId}`);
+      setSelectedLog(response.data);
+    } catch (error) {
+      console.error('Failed to fetch log details:', error);
+    }
+  };
+
+  const getActionColor = (action) => {
+    const colors = {
+      'CREATE': 'bg-green-100 text-green-800',
+      'UPDATE': 'bg-blue-100 text-blue-800',
+      'DELETE': 'bg-red-100 text-red-800',
+      'LOGIN': 'bg-purple-100 text-purple-800',
+      'LOGOUT': 'bg-gray-100 text-gray-800'
+    };
+    return colors[action] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getResourceColor = (resourceType) => {
+    const colors = {
+      'User': 'bg-blue-100 text-blue-800',
+      'Role': 'bg-indigo-100 text-indigo-800',
+      'Chemical': 'bg-green-100 text-green-800',
+      'Experiment': 'bg-purple-100 text-purple-800',
+      'Authentication': 'bg-yellow-100 text-yellow-800'
+    };
+    return colors[resourceType] || 'bg-gray-100 text-gray-800';
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-800">Activity Log</h2>
+        <span className="text-sm text-gray-600">{logs.length} entries</span>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <select
+            value={filters.action}
+            onChange={(e) => setFilters({...filters, action: e.target.value})}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">All Actions</option>
+            <option value="CREATE">Create</option>
+            <option value="UPDATE">Update</option>
+            <option value="DELETE">Delete</option>
+            <option value="LOGIN">Login</option>
+            <option value="LOGOUT">Logout</option>
+          </select>
+
+          <select
+            value={filters.resource_type}
+            onChange={(e) => setFilters({...filters, resource_type: e.target.value})}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">All Resources</option>
+            <option value="User">User</option>
+            <option value="Role">Role</option>
+            <option value="Chemical">Chemical</option>
+            <option value="Experiment">Experiment</option>
+            <option value="Authentication">Authentication</option>
+          </select>
+
+          <input
+            type="text"
+            placeholder="User email..."
+            value={filters.user_email}
+            onChange={(e) => setFilters({...filters, user_email: e.target.value})}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+
+          <input
+            type="date"
+            value={filters.date_from}
+            onChange={(e) => setFilters({...filters, date_from: e.target.value})}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+
+          <input
+            type="date"
+            value={filters.date_to}
+            onChange={(e) => setFilters({...filters, date_to: e.target.value})}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+      </div>
+
+      {/* Activity Log Table */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-auto">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resource</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Summary</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {logs.map((log) => (
+                <React.Fragment key={log.id}>
+                  <tr className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {log.user_email}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(log.action)}`}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getResourceColor(log.resource_type)}`}>
+                        {log.resource_type}
+                      </span>
+                      {log.resource_name && (
+                        <div className="text-xs text-gray-500 mt-1">{log.resource_name}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {log.summary}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => showLogDetails(log.id)}
+                        className="text-indigo-600 hover:text-indigo-900"
+                      >
+                        View Details
+                      </button>
+                    </td>
+                  </tr>
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+
+          {logs.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No activity logs found. Apply different filters or check back later.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Log Details Modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-screen overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-800">Activity Log Details</h3>
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Timestamp</label>
+                  <p className="text-sm text-gray-900">{new Date(selectedLog.timestamp).toLocaleString()}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">User</label>
+                  <p className="text-sm text-gray-900">{selectedLog.user_email}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Action</label>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionColor(selectedLog.action)}`}>
+                    {selectedLog.action}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Resource</label>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getResourceColor(selectedLog.resource_type)}`}>
+                    {selectedLog.resource_type}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Summary</label>
+                <p className="text-sm text-gray-900">{selectedLog.summary}</p>
+              </div>
+
+              {selectedLog.resource_name && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Resource Name</label>
+                  <p className="text-sm text-gray-900">{selectedLog.resource_name}</p>
+                </div>
+              )}
+
+              {Object.keys(selectedLog.details).length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Details</label>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <pre className="text-sm text-gray-900 whitespace-pre-wrap">
+                      {JSON.stringify(selectedLog.details, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const RoleManagement = () => {
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState([]);
