@@ -617,11 +617,15 @@ async def get_user_by_id(
 async def update_user(
     user_id: str,
     update_data: dict,
+    request: Request,
     current_user: User = Depends(check_permission("manage_users"))
 ):
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Store original values for logging
+    original_data = {k: v for k, v in user.items() if k in ["role", "is_active", "email"]}
     
     # Prevent self-modification of critical fields
     if current_user.id == user_id:
@@ -646,6 +650,28 @@ async def update_user(
     
     await db.users.update_one({"id": user_id}, {"$set": update_data})
     updated_user = await db.users.find_one({"id": user_id})
+    
+    # Log user update
+    changes = {}
+    for key, new_value in update_data.items():
+        if key != "hashed_password" and key in original_data:
+            if original_data[key] != new_value:
+                changes[key] = {"before": original_data[key], "after": new_value}
+    
+    if "hashed_password" in update_data:
+        changes["password"] = {"before": "[HIDDEN]", "after": "[UPDATED]"}
+    
+    await log_activity(
+        user=current_user,
+        action="UPDATE",
+        resource_type="User",
+        resource_id=user_id,
+        resource_name=user["email"],
+        summary=f"Updated user '{user['email']}'",
+        details={"changes": changes},
+        request=request
+    )
+    
     return UserResponse(**updated_user)
 
 @api_router.delete("/admin/users/{user_id}")
