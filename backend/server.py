@@ -1,15 +1,18 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime
-
+from datetime import datetime, timedelta
+import jwt
+import bcrypt
+from enum import Enum
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,38 +22,335 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# JWT Settings
+JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
+JWT_ALGORITHM = 'HS256'
+JWT_EXPIRATION_HOURS = 24
+
 # Create the main app without a prefix
-app = FastAPI()
+app = FastAPI(title="Lab Journal API", description="Electronic Lab Journal with Chemical Inventory")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Security
+security = HTTPBearer()
 
-# Define Models
-class StatusCheck(BaseModel):
+# User Roles and Permissions
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    RESEARCHER = "researcher"
+    STUDENT = "student"
+    GUEST = "guest"
+
+ROLE_PERMISSIONS = {
+    UserRole.ADMIN: ["read", "write", "delete", "manage_users", "manage_roles"],
+    UserRole.RESEARCHER: ["read", "write", "delete"],
+    UserRole.STUDENT: ["read", "write"],
+    UserRole.GUEST: ["read"]
+}
+
+# Models
+class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    email: EmailStr
+    hashed_password: str
+    role: UserRole = UserRole.GUEST
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    is_active: bool = True
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    role: UserRole = UserRole.GUEST
 
-# Add your routes to the router instead of directly to app
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    role: UserRole
+    created_at: datetime
+    is_active: bool
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+class UnitType(str, Enum):
+    WEIGHT = "weight"  # grams, kg, mg
+    VOLUME = "volume"  # ml, L
+    AMOUNT = "amount"  # pieces, units
+
+class Chemical(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    quantity: float
+    unit: str  # g, kg, mg, ml, L, pieces, etc.
+    unit_type: UnitType
+    location: str
+    safety_data: Optional[str] = None
+    expiration_date: Optional[datetime] = None
+    supplier: Optional[str] = None
+    notes: Optional[str] = None
+    low_stock_alert: bool = False
+    low_stock_threshold: Optional[float] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: str  # user id
+
+class ChemicalCreate(BaseModel):
+    name: str
+    quantity: float
+    unit: str
+    unit_type: UnitType
+    location: str
+    safety_data: Optional[str] = None
+    expiration_date: Optional[datetime] = None
+    supplier: Optional[str] = None
+    notes: Optional[str] = None
+    low_stock_alert: bool = False
+    low_stock_threshold: Optional[float] = None
+
+class ChemicalUpdate(BaseModel):
+    name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    unit_type: Optional[UnitType] = None
+    location: Optional[str] = None
+    safety_data: Optional[str] = None
+    expiration_date: Optional[datetime] = None
+    supplier: Optional[str] = None
+    notes: Optional[str] = None
+    low_stock_alert: Optional[bool] = None
+    low_stock_threshold: Optional[float] = None
+
+# Utility functions
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    
+    user = await db.users.find_one({"id": user_id})
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return User(**user)
+
+def check_permission(required_permission: str):
+    async def permission_dependency(current_user: User = Depends(get_current_user)):
+        user_permissions = ROLE_PERMISSIONS.get(current_user.role, [])
+        if required_permission not in user_permissions:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return current_user
+    return permission_dependency
+
+# Authentication Routes
+@api_router.post("/auth/register", response_model=UserResponse)
+async def register(user_data: UserCreate):
+    # Check if user exists
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create user with guest role by default
+    hashed_password = hash_password(user_data.password)
+    user = User(
+        email=user_data.email,
+        hashed_password=hashed_password,
+        role=UserRole.GUEST  # Always guest for self-registration
+    )
+    
+    await db.users.insert_one(user.dict())
+    return UserResponse(**user.dict())
+
+@api_router.post("/auth/login", response_model=Token)
+async def login(user_credentials: UserLogin):
+    user = await db.users.find_one({"email": user_credentials.email})
+    if not user or not verify_password(user_credentials.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    if not user["is_active"]:
+        raise HTTPException(status_code=401, detail="Account is deactivated")
+    
+    access_token = create_access_token(data={"sub": user["id"]})
+    user_response = UserResponse(**user)
+    
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        user=user_response
+    )
+
+@api_router.get("/auth/me", response_model=UserResponse)
+async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    return UserResponse(**current_user.dict())
+
+# Admin user creation
+@api_router.post("/admin/users", response_model=UserResponse)
+async def create_user_by_admin(
+    user_data: UserCreate,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    # Check if user exists
+    existing_user = await db.users.find_one({"email": user_data.email})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = hash_password(user_data.password)
+    user = User(
+        email=user_data.email,
+        hashed_password=hashed_password,
+        role=user_data.role
+    )
+    
+    await db.users.insert_one(user.dict())
+    return UserResponse(**user.dict())
+
+# Chemical Routes
+@api_router.post("/chemicals", response_model=Chemical)
+async def create_chemical(
+    chemical_data: ChemicalCreate,
+    current_user: User = Depends(check_permission("write"))
+):
+    chemical = Chemical(**chemical_data.dict(), created_by=current_user.id)
+    await db.chemicals.insert_one(chemical.dict())
+    return chemical
+
+@api_router.get("/chemicals", response_model=List[Chemical])
+async def get_chemicals(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    location: Optional[str] = None,
+    unit_type: Optional[UnitType] = None,
+    low_stock_only: bool = False,
+    current_user: User = Depends(check_permission("read"))
+):
+    query = {}
+    
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"supplier": {"$regex": search, "$options": "i"}},
+            {"notes": {"$regex": search, "$options": "i"}}
+        ]
+    
+    if location:
+        query["location"] = {"$regex": location, "$options": "i"}
+    
+    if unit_type:
+        query["unit_type"] = unit_type
+    
+    chemicals = await db.chemicals.find(query).skip(skip).limit(limit).to_list(1000)
+    result = [Chemical(**chemical) for chemical in chemicals]
+    
+    if low_stock_only:
+        result = [
+            chemical for chemical in result
+            if chemical.low_stock_alert and chemical.low_stock_threshold
+            and chemical.quantity <= chemical.low_stock_threshold
+        ]
+    
+    return result
+
+@api_router.get("/chemicals/{chemical_id}", response_model=Chemical)
+async def get_chemical(
+    chemical_id: str,
+    current_user: User = Depends(check_permission("read"))
+):
+    chemical = await db.chemicals.find_one({"id": chemical_id})
+    if not chemical:
+        raise HTTPException(status_code=404, detail="Chemical not found")
+    return Chemical(**chemical)
+
+@api_router.put("/chemicals/{chemical_id}", response_model=Chemical)
+async def update_chemical(
+    chemical_id: str,
+    update_data: ChemicalUpdate,
+    current_user: User = Depends(check_permission("write"))
+):
+    chemical = await db.chemicals.find_one({"id": chemical_id})
+    if not chemical:
+        raise HTTPException(status_code=404, detail="Chemical not found")
+    
+    update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
+    update_dict["updated_at"] = datetime.utcnow()
+    
+    await db.chemicals.update_one({"id": chemical_id}, {"$set": update_dict})
+    updated_chemical = await db.chemicals.find_one({"id": chemical_id})
+    return Chemical(**updated_chemical)
+
+@api_router.delete("/chemicals/{chemical_id}")
+async def delete_chemical(
+    chemical_id: str,
+    current_user: User = Depends(check_permission("delete"))
+):
+    result = await db.chemicals.delete_one({"id": chemical_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Chemical not found")
+    return {"message": "Chemical deleted successfully"}
+
+# Dashboard stats
+@api_router.get("/dashboard/stats")
+async def get_dashboard_stats(current_user: User = Depends(check_permission("read"))):
+    total_chemicals = await db.chemicals.count_documents({})
+    
+    # Low stock chemicals
+    low_stock_chemicals = []
+    chemicals = await db.chemicals.find({"low_stock_alert": True}).to_list(1000)
+    for chemical_data in chemicals:
+        chemical = Chemical(**chemical_data)
+        if chemical.low_stock_threshold and chemical.quantity <= chemical.low_stock_threshold:
+            low_stock_chemicals.append(chemical)
+    
+    # Expiring chemicals (within 30 days)
+    thirty_days_from_now = datetime.utcnow() + timedelta(days=30)
+    expiring_chemicals = await db.chemicals.find({
+        "expiration_date": {"$lte": thirty_days_from_now, "$gte": datetime.utcnow()}
+    }).to_list(1000)
+    
+    # Recent chemicals (added in last 7 days)
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    recent_chemicals = await db.chemicals.count_documents({
+        "created_at": {"$gte": seven_days_ago}
+    })
+    
+    return {
+        "total_chemicals": total_chemicals,
+        "low_stock_count": len(low_stock_chemicals),
+        "expiring_soon_count": len(expiring_chemicals),
+        "recent_additions": recent_chemicals,
+        "low_stock_chemicals": low_stock_chemicals[:5],  # Top 5
+        "expiring_chemicals": [Chemical(**chem) for chem in expiring_chemicals[:5]]  # Top 5
+    }
+
+# Health check
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+    return {"message": "Lab Journal API is running", "version": "1.0.0"}
 
 # Include the router in the main app
 app.include_router(api_router)
@@ -69,6 +369,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_db():
+    # Create default admin user if not exists
+    admin_user = await db.users.find_one({"email": "admin@lab.com"})
+    if not admin_user:
+        default_admin = User(
+            email="admin@lab.com",
+            hashed_password=hash_password("admin123"),
+            role=UserRole.ADMIN
+        )
+        await db.users.insert_one(default_admin.dict())
+        logger.info("Default admin user created: admin@lab.com / admin123")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
