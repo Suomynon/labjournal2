@@ -82,7 +82,7 @@ async def log_activity(
         resource_name=resource_name,
         summary=summary,
         details=details or {},
-        ip_address=getattr(request, 'client', {}).get('host') if request else None,
+        ip_address=str(request.client.host) if request and hasattr(request, 'client') and hasattr(request.client, 'host') else None,
         user_agent=getattr(request, 'headers', {}).get('user-agent') if request else None
     )
     await db.activity_logs.insert_one(activity.dict())
