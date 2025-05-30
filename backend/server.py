@@ -36,6 +36,57 @@ api_router = APIRouter(prefix="/api")
 # Security
 security = HTTPBearer()
 
+# Activity Log Model for audit trail
+class ActivityLog(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    user_id: str
+    user_email: str
+    action: str  # CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc.
+    resource_type: str  # User, Role, Chemical, Experiment, etc.
+    resource_id: Optional[str] = None
+    resource_name: Optional[str] = None
+    summary: str  # Brief description of the action
+    details: Dict[str, Any] = {}  # Before/after values, additional context
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+class ActivityLogResponse(BaseModel):
+    id: str
+    timestamp: datetime
+    user_email: str
+    action: str
+    resource_type: str
+    resource_name: Optional[str]
+    summary: str
+    details: Dict[str, Any]
+
+# Helper function to log activities
+async def log_activity(
+    user: "User",  # Forward reference to User class
+    action: str,
+    resource_type: str,
+    summary: str,
+    resource_id: str = None,
+    resource_name: str = None,
+    details: Dict[str, Any] = None,
+    request = None
+):
+    """Log user activity to the audit trail"""
+    activity = ActivityLog(
+        user_id=user.id,
+        user_email=user.email,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_name=resource_name,
+        summary=summary,
+        details=details or {},
+        ip_address=getattr(request, 'client', {}).get('host') if request else None,
+        user_agent=getattr(request, 'headers', {}).get('user-agent') if request else None
+    )
+    await db.activity_logs.insert_one(activity.dict())
+
 # Role and Permission Models
 class Permission(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
