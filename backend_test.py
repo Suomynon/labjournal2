@@ -151,7 +151,7 @@ class LabJournalAPITester:
             print(f"Total chemicals: {response.get('total_chemicals')}")
             print(f"Low stock count: {response.get('low_stock_count')}")
             print(f"Expiring soon count: {response.get('expiring_soon_count')}")
-            print(f"Recent additions: {len(response.get('recent_additions', []))}")
+            print(f"Recent additions count: {response.get('recent_additions')}")
         return success
 
     def test_add_chemical(self):
