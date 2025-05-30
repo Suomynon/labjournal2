@@ -591,40 +591,6 @@ async def get_dashboard_stats(current_user: User = Depends(check_permission("rea
         "user_recent_experiments": [Experiment(**exp) for exp in user_recent_experiments]
     }
 
-# Dashboard stats
-@api_router.get("/dashboard/stats")
-async def get_dashboard_stats(current_user: User = Depends(check_permission("read"))):
-    total_chemicals = await db.chemicals.count_documents({})
-    
-    # Low stock chemicals
-    low_stock_chemicals = []
-    chemicals = await db.chemicals.find({"low_stock_alert": True}).to_list(1000)
-    for chemical_data in chemicals:
-        chemical = Chemical(**chemical_data)
-        if chemical.low_stock_threshold and chemical.quantity <= chemical.low_stock_threshold:
-            low_stock_chemicals.append(chemical)
-    
-    # Expiring chemicals (within 30 days)
-    thirty_days_from_now = datetime.utcnow() + timedelta(days=30)
-    expiring_chemicals = await db.chemicals.find({
-        "expiration_date": {"$lte": thirty_days_from_now, "$gte": datetime.utcnow()}
-    }).to_list(1000)
-    
-    # Recent chemicals (added in last 7 days)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
-    recent_chemicals = await db.chemicals.count_documents({
-        "created_at": {"$gte": seven_days_ago}
-    })
-    
-    return {
-        "total_chemicals": total_chemicals,
-        "low_stock_count": len(low_stock_chemicals),
-        "expiring_soon_count": len(expiring_chemicals),
-        "recent_additions": recent_chemicals,
-        "low_stock_chemicals": low_stock_chemicals[:5],  # Top 5
-        "expiring_chemicals": [Chemical(**chem) for chem in expiring_chemicals[:5]]  # Top 5
-    }
-
 # Health check
 @api_router.get("/")
 async def root():
