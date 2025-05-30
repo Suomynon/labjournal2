@@ -72,12 +72,27 @@ class UserRole(str, Enum):
     STUDENT = "student"
     GUEST = "guest"
 
+# Legacy permissions - will be replaced by dynamic system
 ROLE_PERMISSIONS = {
     UserRole.ADMIN: ["read", "write", "delete", "manage_users", "manage_roles"],
     UserRole.RESEARCHER: ["read", "write", "delete"],
     UserRole.STUDENT: ["read", "write"],
     UserRole.GUEST: ["read"]
 }
+
+# Dynamic permission checking
+async def get_user_permissions(user_role: str) -> List[str]:
+    """Get permissions for a user role from database"""
+    role = await db.roles.find_one({"name": user_role})
+    if role:
+        return role.get("permissions", [])
+    # Fallback to legacy system
+    return ROLE_PERMISSIONS.get(user_role, [])
+
+async def user_has_permission(user_role: str, required_permission: str) -> bool:
+    """Check if user role has required permission"""
+    permissions = await get_user_permissions(user_role)
+    return required_permission in permissions
 
 # Models
 class User(BaseModel):
