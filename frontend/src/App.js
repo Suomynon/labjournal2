@@ -2556,8 +2556,7 @@ const Navigation = ({ currentView, setCurrentView }) => {
     { id: 'dashboard', label: 'Dashboard', permission: 'view_dashboard' },
     { id: 'chemicals', label: 'Chemical Inventory', permission: 'read_chemicals' },
     { id: 'experiments', label: 'Experiments', permission: 'read_experiments' },
-    { id: 'users', label: 'User Management', permission: 'manage_users' },
-    { id: 'roles', label: 'Role Management', permission: 'manage_roles' }
+    { id: 'admin', label: 'Admin Panel', permission: 'manage_users' }
   ];
 
   const hasPermission = (permission) => {
