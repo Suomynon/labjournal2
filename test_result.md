@@ -116,6 +116,15 @@
         - working: true
           agent: "main"
           comment: "Complete FastAPI backend with JWT auth, role-based permissions, CRUD operations for users, roles, chemicals, experiments, and activity logging. All dependencies installed and service running."
+        - working: false
+          agent: "user"
+          comment: "User is reporting login failures despite having correct credentials."
+        - working: false
+          agent: "testing"
+          comment: "Found an issue in the login functionality. The log_activity function was causing an error: 'Address' object has no attribute 'get'. This was preventing successful login."
+        - working: true
+          agent: "testing"
+          comment: "Fixed the issue by updating the log_activity function to properly handle the client IP address and user agent. Login now works correctly with admin credentials, JWT token is generated and validated successfully, and protected endpoints are accessible with the token."
 
   - task: "User Management & Role System"
     implemented: true
