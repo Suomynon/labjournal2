@@ -443,11 +443,14 @@ async def create_experiment(
     experiment_data: ExperimentCreate,
     current_user: User = Depends(check_permission("write"))
 ):
-    experiment = Experiment(
-        **experiment_data.dict(),
-        created_by=current_user.id,
-        date=experiment_data.date or datetime.utcnow()
-    )
+    experiment_dict = experiment_data.dict()
+    experiment_dict["created_by"] = current_user.id
+    
+    # Set date if not provided
+    if not experiment_dict.get("date"):
+        experiment_dict["date"] = datetime.utcnow()
+    
+    experiment = Experiment(**experiment_dict)
     await db.experiments.insert_one(experiment.dict())
     return experiment
 
