@@ -208,7 +208,26 @@ async def login(user_credentials: UserLogin):
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return UserResponse(**current_user.dict())
 
-# Admin user creation
+# User management endpoints for admin
+@api_router.get("/admin/users", response_model=List[UserResponse])
+async def get_all_users(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    role: Optional[UserRole] = None,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    query = {}
+    
+    if search:
+        query["email"] = {"$regex": search, "$options": "i"}
+    
+    if role:
+        query["role"] = role
+    
+    users = await db.users.find(query).skip(skip).limit(limit).to_list(1000)
+    return [UserResponse(**user) for user in users]
+
 @api_router.post("/admin/users", response_model=UserResponse)
 async def create_user_by_admin(
     user_data: UserCreate,
@@ -228,6 +247,71 @@ async def create_user_by_admin(
     
     await db.users.insert_one(user.dict())
     return UserResponse(**user.dict())
+
+@api_router.get("/admin/users/{user_id}", response_model=UserResponse)
+async def get_user_by_id(
+    user_id: str,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserResponse(**user)
+
+@api_router.put("/admin/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: str,
+    update_data: dict,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent self-modification of critical fields
+    if current_user.id == user_id:
+        if "role" in update_data and update_data["role"] != current_user.role:
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
+        if "is_active" in update_data and not update_data["is_active"]:
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+    
+    # Validate role if provided
+    if "role" in update_data:
+        try:
+            UserRole(update_data["role"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid role")
+    
+    # Hash password if provided
+    if "password" in update_data:
+        update_data["hashed_password"] = hash_password(update_data["password"])
+        del update_data["password"]
+    
+    # Remove id if present in update data
+    update_data.pop("id", None)
+    
+    await db.users.update_one({"id": user_id}, {"$set": update_data})
+    updated_user = await db.users.find_one({"id": user_id})
+    return UserResponse(**updated_user)
+
+@api_router.delete("/admin/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    # Prevent self-deletion
+    if current_user.id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    result = await db.users.delete_one({"id": user_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "User deleted successfully"}
 
 # Chemical Routes
 @api_router.post("/chemicals", response_model=Chemical)
