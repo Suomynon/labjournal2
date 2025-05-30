@@ -2652,8 +2652,7 @@ const AuthenticatedApp = ({ showLogin, setShowLogin, currentView, setCurrentView
           {currentView === 'dashboard' && <Dashboard />}
           {currentView === 'chemicals' && <ChemicalInventory />}
           {currentView === 'experiments' && <ExperimentJournal />}
-          {currentView === 'users' && <UserManagement />}
-          {currentView === 'roles' && <RoleManagement />}
+          {currentView === 'admin' && <AdminPanel />}
         </div>
       </main>
     </div>
