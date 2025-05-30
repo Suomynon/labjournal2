@@ -472,10 +472,9 @@ async def update_user(
     
     # Validate role if provided
     if "role" in update_data:
-        try:
-            UserRole(update_data["role"])
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid role")
+        role = await db.roles.find_one({"name": update_data["role"]})
+        if not role:
+            raise HTTPException(status_code=400, detail=f"Role '{update_data['role']}' does not exist")
     
     # Hash password if provided
     if "password" in update_data:
