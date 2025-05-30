@@ -437,6 +437,160 @@ async def delete_chemical(
         raise HTTPException(status_code=404, detail="Chemical not found")
     return {"message": "Chemical deleted successfully"}
 
+# Experiment Routes
+@api_router.post("/experiments", response_model=Experiment)
+async def create_experiment(
+    experiment_data: ExperimentCreate,
+    current_user: User = Depends(check_permission("write"))
+):
+    experiment = Experiment(
+        **experiment_data.dict(),
+        created_by=current_user.id,
+        date=experiment_data.date or datetime.utcnow()
+    )
+    await db.experiments.insert_one(experiment.dict())
+    return experiment
+
+@api_router.get("/experiments", response_model=List[Experiment])
+async def get_experiments(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    created_by: Optional[str] = None,
+    current_user: User = Depends(check_permission("read"))
+):
+    query = {}
+    
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}},
+            {"procedure": {"$regex": search, "$options": "i"}},
+            {"observations": {"$regex": search, "$options": "i"}},
+            {"results": {"$regex": search, "$options": "i"}}
+        ]
+    
+    if date_from or date_to:
+        date_query = {}
+        if date_from:
+            date_query["$gte"] = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+        if date_to:
+            date_query["$lte"] = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+        query["date"] = date_query
+    
+    if created_by:
+        query["created_by"] = created_by
+    
+    experiments = await db.experiments.find(query).sort("date", -1).skip(skip).limit(limit).to_list(1000)
+    return [Experiment(**experiment) for experiment in experiments]
+
+@api_router.get("/experiments/{experiment_id}", response_model=Experiment)
+async def get_experiment(
+    experiment_id: str,
+    current_user: User = Depends(check_permission("read"))
+):
+    experiment = await db.experiments.find_one({"id": experiment_id})
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return Experiment(**experiment)
+
+@api_router.put("/experiments/{experiment_id}", response_model=Experiment)
+async def update_experiment(
+    experiment_id: str,
+    update_data: ExperimentUpdate,
+    current_user: User = Depends(check_permission("write"))
+):
+    experiment = await db.experiments.find_one({"id": experiment_id})
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # Check if user owns this experiment or is admin
+    if current_user.role != UserRole.ADMIN and experiment["created_by"] != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own experiments")
+    
+    update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
+    update_dict["updated_at"] = datetime.utcnow()
+    
+    await db.experiments.update_one({"id": experiment_id}, {"$set": update_dict})
+    updated_experiment = await db.experiments.find_one({"id": experiment_id})
+    return Experiment(**updated_experiment)
+
+@api_router.delete("/experiments/{experiment_id}")
+async def delete_experiment(
+    experiment_id: str,
+    current_user: User = Depends(check_permission("delete"))
+):
+    experiment = await db.experiments.find_one({"id": experiment_id})
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    
+    # Check if user owns this experiment or is admin
+    if current_user.role != UserRole.ADMIN and experiment["created_by"] != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own experiments")
+    
+    result = await db.experiments.delete_one({"id": experiment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    return {"message": "Experiment deleted successfully"}
+
+# Get chemicals for experiment creation (with current stock)
+@api_router.get("/experiments/chemicals/available")
+async def get_available_chemicals_for_experiment(
+    current_user: User = Depends(check_permission("read"))
+):
+    chemicals = await db.chemicals.find({}).to_list(1000)
+    return [{"id": chem["id"], "name": chem["name"], "quantity": chem["quantity"], "unit": chem["unit"]} for chem in chemicals]
+
+# Dashboard stats
+@api_router.get("/dashboard/stats")
+async def get_dashboard_stats(current_user: User = Depends(check_permission("read"))):
+    total_chemicals = await db.chemicals.count_documents({})
+    total_experiments = await db.experiments.count_documents({})
+    
+    # Low stock chemicals
+    low_stock_chemicals = []
+    chemicals = await db.chemicals.find({"low_stock_alert": True}).to_list(1000)
+    for chemical_data in chemicals:
+        chemical = Chemical(**chemical_data)
+        if chemical.low_stock_threshold and chemical.quantity <= chemical.low_stock_threshold:
+            low_stock_chemicals.append(chemical)
+    
+    # Expiring chemicals (within 30 days)
+    thirty_days_from_now = datetime.utcnow() + timedelta(days=30)
+    expiring_chemicals = await db.chemicals.find({
+        "expiration_date": {"$lte": thirty_days_from_now, "$gte": datetime.utcnow()}
+    }).to_list(1000)
+    
+    # Recent chemicals (added in last 7 days)
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    recent_chemicals = await db.chemicals.count_documents({
+        "created_at": {"$gte": seven_days_ago}
+    })
+    
+    # Recent experiments (last 7 days)
+    recent_experiments = await db.experiments.count_documents({
+        "created_at": {"$gte": seven_days_ago}
+    })
+    
+    # User's recent experiments (last 5)
+    user_recent_experiments = await db.experiments.find({
+        "created_by": current_user.id
+    }).sort("created_at", -1).limit(5).to_list(5)
+    
+    return {
+        "total_chemicals": total_chemicals,
+        "total_experiments": total_experiments,
+        "low_stock_count": len(low_stock_chemicals),
+        "expiring_soon_count": len(expiring_chemicals),
+        "recent_chemicals": recent_chemicals,
+        "recent_experiments": recent_experiments,
+        "low_stock_chemicals": low_stock_chemicals[:5],  # Top 5
+        "expiring_chemicals": [Chemical(**chem) for chem in expiring_chemicals[:5]],  # Top 5
+        "user_recent_experiments": [Experiment(**exp) for exp in user_recent_experiments]
+    }
+
 # Dashboard stats
 @api_router.get("/dashboard/stats")
 async def get_dashboard_stats(current_user: User = Depends(check_permission("read"))):
