@@ -700,7 +700,695 @@ const ChemicalForm = ({ chemical, onClose, onSave }) => {
   );
 };
 
-const UserManagement = () => {
+const ExperimentJournal = () => {
+  const [experiments, setExperiments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingExperiment, setEditingExperiment] = useState(null);
+  const [viewingExperiment, setViewingExperiment] = useState(null);
+
+  useEffect(() => {
+    fetchExperiments();
+  }, [searchTerm, dateFrom, dateTo]);
+
+  const fetchExperiments = async () => {
+    try {
+      const params = {};
+      if (searchTerm) params.search = searchTerm;
+      if (dateFrom) params.date_from = new Date(dateFrom).toISOString();
+      if (dateTo) params.date_to = new Date(dateTo).toISOString();
+      
+      const response = await axios.get(`${API}/experiments`, { params });
+      setExperiments(response.data);
+    } catch (error) {
+      console.error('Failed to fetch experiments:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteExperiment = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this experiment?')) return;
+    
+    try {
+      await axios.delete(`${API}/experiments/${id}`);
+      fetchExperiments();
+    } catch (error) {
+      console.error('Failed to delete experiment:', error);
+      alert(error.response?.data?.detail || 'Failed to delete experiment');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-800">Experiment Journal</h2>
+        <button
+          onClick={() => setShowAddForm(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+        >
+          Add Experiment
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <input
+            type="text"
+            placeholder="Search experiments..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="date"
+            placeholder="From date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="date"
+            placeholder="To date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {experiments.map((experiment) => (
+            <div key={experiment.id} className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="text-lg font-semibold text-gray-900 truncate">{experiment.title}</h3>
+                <span className="text-sm text-gray-500">
+                  {new Date(experiment.date).toLocaleDateString()}
+                </span>
+              </div>
+              
+              {experiment.description && (
+                <p className="text-gray-600 text-sm mb-2 line-clamp-2">{experiment.description}</p>
+              )}
+              
+              {experiment.chemicals_used && experiment.chemicals_used.length > 0 && (
+                <div className="mb-2">
+                  <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded">
+                    {experiment.chemicals_used.length} chemical(s) used
+                  </span>
+                </div>
+              )}
+              
+              <div className="flex justify-between items-center pt-2 border-t">
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setViewingExperiment(experiment)}
+                    className="text-blue-600 hover:text-blue-900 text-sm"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => setEditingExperiment(experiment)}
+                    className="text-green-600 hover:text-green-900 text-sm"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => deleteExperiment(experiment.id)}
+                    className="text-red-600 hover:text-red-900 text-sm"
+                  >
+                    Delete
+                  </button>
+                </div>
+                
+                {experiment.results && (
+                  <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded">
+                    Completed
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {experiments.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            No experiments found. Add your first experiment to get started!
+          </div>
+        )}
+      </div>
+
+      {(showAddForm || editingExperiment) && (
+        <ExperimentForm
+          experiment={editingExperiment}
+          onClose={() => {
+            setShowAddForm(false);
+            setEditingExperiment(null);
+          }}
+          onSave={() => {
+            fetchExperiments();
+            setShowAddForm(false);
+            setEditingExperiment(null);
+          }}
+        />
+      )}
+
+      {viewingExperiment && (
+        <ExperimentDetails
+          experiment={viewingExperiment}
+          onClose={() => setViewingExperiment(null)}
+          onEdit={() => {
+            setEditingExperiment(viewingExperiment);
+            setViewingExperiment(null);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+const ExperimentForm = ({ experiment, onClose, onSave }) => {
+  const [formData, setFormData] = useState({
+    title: experiment?.title || '',
+    date: experiment?.date ? experiment.date.split('T')[0] : new Date().toISOString().split('T')[0],
+    description: experiment?.description || '',
+    procedure: experiment?.procedure || '',
+    chemicals_used: experiment?.chemicals_used || [],
+    equipment_used: experiment?.equipment_used || [],
+    observations: experiment?.observations || '',
+    results: experiment?.results || '',
+    conclusions: experiment?.conclusions || '',
+    external_links: experiment?.external_links || []
+  });
+  
+  const [availableChemicals, setAvailableChemicals] = useState([]);
+  const [selectedChemical, setSelectedChemical] = useState('');
+  const [chemicalQuantity, setChemicalQuantity] = useState('');
+  const [newEquipment, setNewEquipment] = useState('');
+  const [newLink, setNewLink] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchAvailableChemicals();
+  }, []);
+
+  const fetchAvailableChemicals = async () => {
+    try {
+      const response = await axios.get(`${API}/experiments/chemicals/available`);
+      setAvailableChemicals(response.data);
+    } catch (error) {
+      console.error('Failed to fetch chemicals:', error);
+    }
+  };
+
+  const addChemical = () => {
+    if (!selectedChemical || !chemicalQuantity) return;
+    
+    const chemical = availableChemicals.find(c => c.id === selectedChemical);
+    if (!chemical) return;
+
+    const newChemical = {
+      chemical_id: chemical.id,
+      chemical_name: chemical.name,
+      quantity_used: parseFloat(chemicalQuantity),
+      unit: chemical.unit,
+      available_quantity: chemical.quantity
+    };
+
+    setFormData({
+      ...formData,
+      chemicals_used: [...formData.chemicals_used, newChemical]
+    });
+
+    setSelectedChemical('');
+    setChemicalQuantity('');
+  };
+
+  const removeChemical = (index) => {
+    const updatedChemicals = formData.chemicals_used.filter((_, i) => i !== index);
+    setFormData({ ...formData, chemicals_used: updatedChemicals });
+  };
+
+  const addEquipment = () => {
+    if (!newEquipment.trim()) return;
+    
+    setFormData({
+      ...formData,
+      equipment_used: [...formData.equipment_used, newEquipment.trim()]
+    });
+    setNewEquipment('');
+  };
+
+  const removeEquipment = (index) => {
+    const updatedEquipment = formData.equipment_used.filter((_, i) => i !== index);
+    setFormData({ ...formData, equipment_used: updatedEquipment });
+  };
+
+  const addLink = () => {
+    if (!newLink.trim()) return;
+    
+    setFormData({
+      ...formData,
+      external_links: [...formData.external_links, newLink.trim()]
+    });
+    setNewLink('');
+  };
+
+  const removeLink = (index) => {
+    const updatedLinks = formData.external_links.filter((_, i) => i !== index);
+    setFormData({ ...formData, external_links: updatedLinks });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const data = {
+        ...formData,
+        date: new Date(formData.date).toISOString()
+      };
+
+      if (experiment) {
+        await axios.put(`${API}/experiments/${experiment.id}`, data);
+      } else {
+        await axios.post(`${API}/experiments`, data);
+      }
+      
+      onSave();
+    } catch (error) {
+      setError(error.response?.data?.detail || 'Failed to save experiment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-bold text-gray-800">
+            {experiment ? 'Edit Experiment' : 'Add Experiment'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 text-2xl"
+          >
+            ×
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+              <input
+                type="text"
+                value={formData.title}
+                onChange={(e) => setFormData({...formData, title: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Date *</label>
+              <input
+                type="date"
+                value={formData.date}
+                onChange={(e) => setFormData({...formData, date: e.target.value})}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+              <select className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="planned">Planned</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              rows="3"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Procedure</label>
+            <textarea
+              value={formData.procedure}
+              onChange={(e) => setFormData({...formData, procedure: e.target.value})}
+              rows="4"
+              placeholder="Describe the experimental procedure..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Chemicals Used Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Chemicals Used</label>
+            <div className="flex space-x-2 mb-2">
+              <select
+                value={selectedChemical}
+                onChange={(e) => setSelectedChemical(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select a chemical</option>
+                {availableChemicals.map((chemical) => (
+                  <option key={chemical.id} value={chemical.id}>
+                    {chemical.name} (Available: {chemical.quantity} {chemical.unit})
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                step="0.01"
+                value={chemicalQuantity}
+                onChange={(e) => setChemicalQuantity(e.target.value)}
+                placeholder="Quantity used"
+                className="w-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={addChemical}
+                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add
+              </button>
+            </div>
+            
+            {formData.chemicals_used.length > 0 && (
+              <div className="space-y-1">
+                {formData.chemicals_used.map((chemical, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span>
+                      {chemical.chemical_name} - {chemical.quantity_used} {chemical.unit}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeChemical(index)}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Equipment Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Equipment Used</label>
+            <div className="flex space-x-2 mb-2">
+              <input
+                type="text"
+                value={newEquipment}
+                onChange={(e) => setNewEquipment(e.target.value)}
+                placeholder="Enter equipment name"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={addEquipment}
+                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add
+              </button>
+            </div>
+            
+            {formData.equipment_used.length > 0 && (
+              <div className="space-y-1">
+                {formData.equipment_used.map((equipment, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span>{equipment}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeEquipment(index)}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Observations</label>
+              <textarea
+                value={formData.observations}
+                onChange={(e) => setFormData({...formData, observations: e.target.value})}
+                rows="4"
+                placeholder="Record your observations..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Results</label>
+              <textarea
+                value={formData.results}
+                onChange={(e) => setFormData({...formData, results: e.target.value})}
+                rows="4"
+                placeholder="Document your results..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Conclusions</label>
+              <textarea
+                value={formData.conclusions}
+                onChange={(e) => setFormData({...formData, conclusions: e.target.value})}
+                rows="4"
+                placeholder="Your conclusions..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* External Links Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">External Links</label>
+            <div className="flex space-x-2 mb-2">
+              <input
+                type="url"
+                value={newLink}
+                onChange={(e) => setNewLink(e.target.value)}
+                placeholder="Enter URL (protocols, references, etc.)"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={addLink}
+                className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Add
+              </button>
+            </div>
+            
+            {formData.external_links.length > 0 && (
+              <div className="space-y-1">
+                {formData.external_links.map((link, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <a
+                      href={link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 truncate"
+                    >
+                      {link}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => removeLink(index)}
+                      className="text-red-600 hover:text-red-800 ml-2"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : 'Save Experiment'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const ExperimentDetails = ({ experiment, onClose, onEdit }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-screen overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-800">{experiment.title}</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={onEdit}
+              className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Edit
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 text-2xl"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Date</h4>
+              <p className="text-gray-600">{new Date(experiment.date).toLocaleDateString()}</p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Status</h4>
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                experiment.results ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {experiment.results ? 'Completed' : 'In Progress'}
+              </span>
+            </div>
+          </div>
+
+          {experiment.description && (
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Description</h4>
+              <p className="text-gray-600">{experiment.description}</p>
+            </div>
+          )}
+
+          {experiment.procedure && (
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Procedure</h4>
+              <p className="text-gray-600 whitespace-pre-wrap">{experiment.procedure}</p>
+            </div>
+          )}
+
+          {experiment.chemicals_used && experiment.chemicals_used.length > 0 && (
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Chemicals Used</h4>
+              <div className="space-y-2">
+                {experiment.chemicals_used.map((chemical, index) => (
+                  <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                    <span className="font-medium">{chemical.chemical_name}</span>
+                    <span className="text-gray-600">{chemical.quantity_used} {chemical.unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {experiment.equipment_used && experiment.equipment_used.length > 0 && (
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">Equipment Used</h4>
+              <div className="flex flex-wrap gap-2">
+                {experiment.equipment_used.map((equipment, index) => (
+                  <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                    {equipment}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {experiment.observations && (
+              <div>
+                <h4 className="font-semibold text-gray-700 mb-2">Observations</h4>
+                <p className="text-gray-600 whitespace-pre-wrap">{experiment.observations}</p>
+              </div>
+            )}
+
+            {experiment.results && (
+              <div>
+                <h4 className="font-semibold text-gray-700 mb-2">Results</h4>
+                <p className="text-gray-600 whitespace-pre-wrap">{experiment.results}</p>
+              </div>
+            )}
+
+            {experiment.conclusions && (
+              <div>
+                <h4 className="font-semibold text-gray-700 mb-2">Conclusions</h4>
+                <p className="text-gray-600 whitespace-pre-wrap">{experiment.conclusions}</p>
+              </div>
+            )}
+          </div>
+
+          {experiment.external_links && experiment.external_links.length > 0 && (
+            <div>
+              <h4 className="font-semibold text-gray-700 mb-2">External Links</h4>
+              <div className="space-y-1">
+                {experiment.external_links.map((link, index) => (
+                  <a
+                    key={index}
+                    href={link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-blue-600 hover:text-blue-800 break-all"
+                  >
+                    {link}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
