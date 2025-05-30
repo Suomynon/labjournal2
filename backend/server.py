@@ -567,6 +567,7 @@ async def get_all_users(
 @api_router.post("/admin/users", response_model=UserResponse)
 async def create_user_by_admin(
     user_data: UserCreate,
+    request: Request,
     current_user: User = Depends(check_permission("manage_users"))
 ):
     # Check if user exists
@@ -587,6 +588,19 @@ async def create_user_by_admin(
     )
     
     await db.users.insert_one(user.dict())
+    
+    # Log user creation
+    await log_activity(
+        user=current_user,
+        action="CREATE",
+        resource_type="User",
+        resource_id=user.id,
+        resource_name=user.email,
+        summary=f"Created user '{user.email}' with role '{user.role}'",
+        details={"email": user.email, "role": user.role, "is_active": user.is_active},
+        request=request
+    )
+    
     return UserResponse(**user.dict())
 
 @api_router.get("/admin/users/{user_id}", response_model=UserResponse)
