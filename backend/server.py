@@ -292,6 +292,112 @@ async def login(user_credentials: UserLogin):
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     return UserResponse(**current_user.dict())
 
+# Role and Permission Management Routes
+@api_router.get("/permissions", response_model=List[Permission])
+async def get_all_permissions(current_user: User = Depends(check_permission("manage_roles"))):
+    """Get all available permissions"""
+    permissions = await db.permissions.find({}).to_list(1000)
+    return [Permission(**perm) for perm in permissions]
+
+@api_router.get("/roles", response_model=List[Role])
+async def get_all_roles(current_user: User = Depends(check_permission("manage_roles"))):
+    """Get all roles"""
+    roles = await db.roles.find({}).to_list(1000)
+    return [Role(**role) for role in roles]
+
+@api_router.post("/roles", response_model=Role)
+async def create_role(
+    role_data: RoleCreate,
+    current_user: User = Depends(check_permission("manage_roles"))
+):
+    """Create a new role"""
+    # Check if role name already exists
+    existing_role = await db.roles.find_one({"name": role_data.name})
+    if existing_role:
+        raise HTTPException(status_code=400, detail="Role name already exists")
+    
+    # Validate permissions exist
+    for perm_name in role_data.permissions:
+        perm = await db.permissions.find_one({"name": perm_name})
+        if not perm:
+            raise HTTPException(status_code=400, detail=f"Permission '{perm_name}' does not exist")
+    
+    role = Role(**role_data.dict(), is_system=False)
+    await db.roles.insert_one(role.dict())
+    return role
+
+@api_router.get("/roles/{role_name}", response_model=Role)
+async def get_role(
+    role_name: str,
+    current_user: User = Depends(check_permission("manage_roles"))
+):
+    """Get a specific role by name"""
+    role = await db.roles.find_one({"name": role_name})
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    return Role(**role)
+
+@api_router.put("/roles/{role_name}", response_model=Role)
+async def update_role(
+    role_name: str,
+    update_data: RoleUpdate,
+    current_user: User = Depends(check_permission("manage_roles"))
+):
+    """Update a role"""
+    role = await db.roles.find_one({"name": role_name})
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    
+    # Validate permissions if provided
+    if update_data.permissions is not None:
+        for perm_name in update_data.permissions:
+            perm = await db.permissions.find_one({"name": perm_name})
+            if not perm:
+                raise HTTPException(status_code=400, detail=f"Permission '{perm_name}' does not exist")
+    
+    update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
+    update_dict["updated_at"] = datetime.utcnow()
+    
+    await db.roles.update_one({"name": role_name}, {"$set": update_dict})
+    updated_role = await db.roles.find_one({"name": role_name})
+    return Role(**updated_role)
+
+@api_router.delete("/roles/{role_name}")
+async def delete_role(
+    role_name: str,
+    current_user: User = Depends(check_permission("manage_roles"))
+):
+    """Delete a role (only non-system roles)"""
+    role = await db.roles.find_one({"name": role_name})
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    
+    if role.get("is_system", False):
+        raise HTTPException(status_code=400, detail="Cannot delete system roles")
+    
+    # Check if any users have this role
+    users_with_role = await db.users.count_documents({"role": role_name})
+    if users_with_role > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete role: {users_with_role} users still have this role")
+    
+    result = await db.roles.delete_one({"name": role_name})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Role not found")
+    return {"message": "Role deleted successfully"}
+
+@api_router.get("/roles/{role_name}/users")
+async def get_users_with_role(
+    role_name: str,
+    current_user: User = Depends(check_permission("manage_users"))
+):
+    """Get all users with a specific role"""
+    role = await db.roles.find_one({"name": role_name})
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    
+    users = await db.users.find({"role": role_name}).to_list(1000)
+    return [UserResponse(**user) for user in users]
+
 # User management endpoints for admin
 @api_router.get("/admin/users", response_model=List[UserResponse])
 async def get_all_users(
