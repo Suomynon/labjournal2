@@ -13,6 +13,7 @@ class LabJournalAPITester:
         self.token = None
         self.admin_token = None
         self.test_chemical_id = None
+        self.test_experiment_id = None
         self.tests_run = 0
         self.tests_passed = 0
         self.tests_failed = 0
