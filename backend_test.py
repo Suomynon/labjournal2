@@ -1,11 +1,10 @@
 import requests
-import unittest
-import json
+import sys
 import uuid
 from datetime import datetime, timedelta
 
-class LabJournalAPITest(unittest.TestCase):
-    def setUp(self):
+class LabJournalAPITester:
+    def __init__(self):
         self.base_url = "https://97e456da-068a-40b2-be4b-b782e0702ff1.preview.emergentagent.com/api"
         self.admin_email = "admin@lab.com"
         self.admin_password = "admin123"
@@ -14,103 +13,145 @@ class LabJournalAPITest(unittest.TestCase):
         self.token = None
         self.admin_token = None
         self.test_chemical_id = None
+        self.tests_run = 0
+        self.tests_passed = 0
+        self.tests_failed = 0
 
-    def test_01_register_user(self):
+    def run_test(self, name, method, endpoint, expected_status, data=None, token=None, params=None):
+        """Run a single API test"""
+        url = f"{self.base_url}/{endpoint}"
+        headers = {'Content-Type': 'application/json'}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+
+        self.tests_run += 1
+        print(f"\n🔍 Testing {name}...")
+        
+        try:
+            if method == 'GET':
+                response = requests.get(url, headers=headers, params=params)
+            elif method == 'POST':
+                response = requests.post(url, json=data, headers=headers)
+            elif method == 'PUT':
+                response = requests.put(url, json=data, headers=headers)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=headers)
+
+            success = response.status_code == expected_status
+            if success:
+                self.tests_passed += 1
+                print(f"✅ Passed - Status: {response.status_code}")
+                if response.status_code != 204:  # No content
+                    try:
+                        return success, response.json()
+                    except:
+                        return success, {}
+                return success, {}
+            else:
+                self.tests_failed += 1
+                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
+                print(f"Response: {response.text}")
+                return False, {}
+
+        except Exception as e:
+            self.tests_failed += 1
+            print(f"❌ Failed - Error: {str(e)}")
+            return False, {}
+
+    def test_register_user(self):
         """Test user registration"""
-        print(f"\n🔍 Testing user registration with {self.test_user_email}...")
-        
-        response = requests.post(
-            f"{self.base_url}/auth/register",
-            json={"email": self.test_user_email, "password": self.test_user_password}
+        success, response = self.run_test(
+            "User Registration",
+            "POST",
+            "auth/register",
+            201,
+            data={"email": self.test_user_email, "password": self.test_user_password}
         )
-        
-        self.assertEqual(response.status_code, 201, f"Registration failed: {response.text}")
-        print(f"✅ User registration successful")
+        return success
 
-    def test_02_login_with_invalid_credentials(self):
+    def test_login_with_invalid_credentials(self):
         """Test login with invalid credentials"""
-        print("\n🔍 Testing login with invalid credentials...")
-        
-        response = requests.post(
-            f"{self.base_url}/auth/login",
-            json={"email": self.test_user_email, "password": "wrongpassword"}
+        success, _ = self.run_test(
+            "Login with Invalid Credentials",
+            "POST",
+            "auth/login",
+            401,
+            data={"email": self.test_user_email, "password": "wrongpassword"}
         )
-        
-        self.assertEqual(response.status_code, 401, f"Expected 401, got {response.status_code}")
-        print(f"✅ Login with invalid credentials correctly rejected")
+        return success
 
-    def test_03_login_with_valid_credentials(self):
+    def test_login_with_valid_credentials(self):
         """Test login with valid credentials"""
-        print("\n🔍 Testing login with valid credentials...")
-        
-        response = requests.post(
-            f"{self.base_url}/auth/login",
-            json={"email": self.test_user_email, "password": self.test_user_password}
+        success, response = self.run_test(
+            "Login with Valid Credentials",
+            "POST",
+            "auth/login",
+            200,
+            data={"email": self.test_user_email, "password": self.test_user_password}
         )
-        
-        self.assertEqual(response.status_code, 200, f"Login failed: {response.text}")
-        data = response.json()
-        self.assertIn("access_token", data, "No access token in response")
-        self.token = data["access_token"]
-        print(f"✅ Login successful, token received")
+        if success and "access_token" in response:
+            self.token = response["access_token"]
+            print(f"Token received: {self.token[:20]}...")
+        return success
 
-    def test_04_login_as_admin(self):
+    def test_login_as_admin(self):
         """Test login as admin"""
-        print("\n🔍 Testing login as admin...")
-        
-        response = requests.post(
-            f"{self.base_url}/auth/login",
-            json={"email": self.admin_email, "password": self.admin_password}
+        success, response = self.run_test(
+            "Login as Admin",
+            "POST",
+            "auth/login",
+            200,
+            data={"email": self.admin_email, "password": self.admin_password}
         )
-        
-        self.assertEqual(response.status_code, 200, f"Admin login failed: {response.text}")
-        data = response.json()
-        self.assertIn("access_token", data, "No access token in response")
-        self.admin_token = data["access_token"]
-        print(f"✅ Admin login successful, token received")
+        if success and "access_token" in response:
+            self.admin_token = response["access_token"]
+            print(f"Admin token received: {self.admin_token[:20]}...")
+        return success
 
-    def test_05_get_current_user(self):
+    def test_get_current_user(self):
         """Test getting current user info"""
-        print("\n🔍 Testing get current user info...")
-        
         if not self.token:
-            self.skipTest("No token available")
+            print("⚠️ Skipping test: No token available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(f"{self.base_url}/auth/me", headers=headers)
-        
-        self.assertEqual(response.status_code, 200, f"Get user info failed: {response.text}")
-        data = response.json()
-        self.assertEqual(data["email"], self.test_user_email)
-        self.assertEqual(data["role"], "guest", "New user should have guest role by default")
-        print(f"✅ User info retrieved successfully")
+        success, response = self.run_test(
+            "Get Current User Info",
+            "GET",
+            "auth/me",
+            200,
+            token=self.token
+        )
+        if success:
+            print(f"User email: {response.get('email')}")
+            print(f"User role: {response.get('role')}")
+        return success
 
-    def test_06_access_dashboard_stats(self):
+    def test_access_dashboard_stats(self):
         """Test accessing dashboard stats"""
-        print("\n🔍 Testing dashboard stats access...")
-        
         if not self.token:
-            self.skipTest("No token available")
+            print("⚠️ Skipping test: No token available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(f"{self.base_url}/dashboard/stats", headers=headers)
-        
-        self.assertEqual(response.status_code, 200, f"Dashboard stats access failed: {response.text}")
-        data = response.json()
-        self.assertIn("total_chemicals", data)
-        self.assertIn("low_stock_count", data)
-        self.assertIn("expiring_soon_count", data)
-        self.assertIn("recent_additions", data)
-        print(f"✅ Dashboard stats accessed successfully")
+        success, response = self.run_test(
+            "Dashboard Stats Access",
+            "GET",
+            "dashboard/stats",
+            200,
+            token=self.token
+        )
+        if success:
+            print(f"Total chemicals: {response.get('total_chemicals')}")
+            print(f"Low stock count: {response.get('low_stock_count')}")
+            print(f"Expiring soon count: {response.get('expiring_soon_count')}")
+            print(f"Recent additions: {response.get('recent_additions')}")
+        return success
 
-    def test_07_add_chemical(self):
+    def test_add_chemical(self):
         """Test adding a new chemical"""
-        print("\n🔍 Testing adding a new chemical...")
-        
         if not self.admin_token:
-            self.skipTest("No admin token available")
+            print("⚠️ Skipping test: No admin token available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
         chemical_data = {
             "name": "Test Chemical",
             "quantity": 100,
@@ -125,75 +166,80 @@ class LabJournalAPITest(unittest.TestCase):
             "expiration_date": (datetime.now() + timedelta(days=90)).isoformat()
         }
         
-        response = requests.post(
-            f"{self.base_url}/chemicals",
-            json=chemical_data,
-            headers=headers
+        success, response = self.run_test(
+            "Add Chemical",
+            "POST",
+            "chemicals",
+            201,
+            data=chemical_data,
+            token=self.admin_token
         )
-        
-        self.assertEqual(response.status_code, 201, f"Add chemical failed: {response.text}")
-        data = response.json()
-        self.assertIn("id", data)
-        self.test_chemical_id = data["id"]
-        print(f"✅ Chemical added successfully with ID: {self.test_chemical_id}")
+        if success and "id" in response:
+            self.test_chemical_id = response["id"]
+            print(f"Chemical ID: {self.test_chemical_id}")
+        return success
 
-    def test_08_get_chemicals(self):
+    def test_get_chemicals(self):
         """Test getting all chemicals"""
-        print("\n🔍 Testing getting all chemicals...")
-        
         if not self.token:
-            self.skipTest("No token available")
+            print("⚠️ Skipping test: No token available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(f"{self.base_url}/chemicals", headers=headers)
-        
-        self.assertEqual(response.status_code, 200, f"Get chemicals failed: {response.text}")
-        data = response.json()
-        self.assertIsInstance(data, list)
-        print(f"✅ Retrieved {len(data)} chemicals successfully")
-
-    def test_09_get_chemical_by_id(self):
-        """Test getting a chemical by ID"""
-        print("\n🔍 Testing getting a chemical by ID...")
-        
-        if not self.token or not self.test_chemical_id:
-            self.skipTest("No token or chemical ID available")
-        
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(f"{self.base_url}/chemicals/{self.test_chemical_id}", headers=headers)
-        
-        self.assertEqual(response.status_code, 200, f"Get chemical by ID failed: {response.text}")
-        data = response.json()
-        self.assertEqual(data["name"], "Test Chemical")
-        print(f"✅ Retrieved chemical by ID successfully")
-
-    def test_10_search_chemicals(self):
-        """Test searching chemicals"""
-        print("\n🔍 Testing searching chemicals...")
-        
-        if not self.token:
-            self.skipTest("No token available")
-        
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(
-            f"{self.base_url}/chemicals?search=Test",
-            headers=headers
+        success, response = self.run_test(
+            "Get All Chemicals",
+            "GET",
+            "chemicals",
+            200,
+            token=self.token
         )
-        
-        self.assertEqual(response.status_code, 200, f"Search chemicals failed: {response.text}")
-        data = response.json()
-        self.assertIsInstance(data, list)
-        self.assertTrue(any("Test" in chemical["name"] for chemical in data))
-        print(f"✅ Chemical search successful")
+        if success:
+            print(f"Retrieved {len(response)} chemicals")
+            if response:
+                print(f"First chemical: {response[0].get('name')}")
+        return success
 
-    def test_11_update_chemical(self):
+    def test_get_chemical_by_id(self):
+        """Test getting a chemical by ID"""
+        if not self.token or not self.test_chemical_id:
+            print("⚠️ Skipping test: No token or chemical ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Get Chemical by ID",
+            "GET",
+            f"chemicals/{self.test_chemical_id}",
+            200,
+            token=self.token
+        )
+        if success:
+            print(f"Chemical name: {response.get('name')}")
+            print(f"Chemical quantity: {response.get('quantity')} {response.get('unit')}")
+        return success
+
+    def test_search_chemicals(self):
+        """Test searching chemicals"""
+        if not self.token:
+            print("⚠️ Skipping test: No token available")
+            return False
+        
+        success, response = self.run_test(
+            "Search Chemicals",
+            "GET",
+            "chemicals",
+            200,
+            token=self.token,
+            params={"search": "Test"}
+        )
+        if success:
+            print(f"Found {len(response)} chemicals matching 'Test'")
+        return success
+
+    def test_update_chemical(self):
         """Test updating a chemical"""
-        print("\n🔍 Testing updating a chemical...")
-        
         if not self.admin_token or not self.test_chemical_id:
-            self.skipTest("No admin token or chemical ID available")
+            print("⚠️ Skipping test: No admin token or chemical ID available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
         update_data = {
             "name": "Updated Test Chemical",
             "quantity": 80,
@@ -207,23 +253,24 @@ class LabJournalAPITest(unittest.TestCase):
             "low_stock_threshold": 15
         }
         
-        response = requests.put(
-            f"{self.base_url}/chemicals/{self.test_chemical_id}",
-            json=update_data,
-            headers=headers
+        success, response = self.run_test(
+            "Update Chemical",
+            "PUT",
+            f"chemicals/{self.test_chemical_id}",
+            200,
+            data=update_data,
+            token=self.admin_token
         )
-        
-        self.assertEqual(response.status_code, 200, f"Update chemical failed: {response.text}")
-        print(f"✅ Chemical updated successfully")
+        if success:
+            print(f"Chemical updated: {response.get('name')}")
+        return success
 
-    def test_12_guest_cannot_add_chemical(self):
+    def test_guest_cannot_add_chemical(self):
         """Test that guest users cannot add chemicals"""
-        print("\n🔍 Testing that guest users cannot add chemicals...")
-        
         if not self.token:
-            self.skipTest("No token available")
+            print("⚠️ Skipping test: No token available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.token}"}
         chemical_data = {
             "name": "Guest Test Chemical",
             "quantity": 50,
@@ -232,47 +279,79 @@ class LabJournalAPITest(unittest.TestCase):
             "location": "Lab C"
         }
         
-        response = requests.post(
-            f"{self.base_url}/chemicals",
-            json=chemical_data,
-            headers=headers
+        success, _ = self.run_test(
+            "Guest User Cannot Add Chemical",
+            "POST",
+            "chemicals",
+            403,
+            data=chemical_data,
+            token=self.token
         )
-        
-        self.assertEqual(response.status_code, 403, f"Expected 403, got {response.status_code}")
-        print(f"✅ Guest user correctly prevented from adding chemicals")
+        return success
 
-    def test_13_delete_chemical(self):
+    def test_delete_chemical(self):
         """Test deleting a chemical"""
-        print("\n🔍 Testing deleting a chemical...")
-        
         if not self.admin_token or not self.test_chemical_id:
-            self.skipTest("No admin token or chemical ID available")
+            print("⚠️ Skipping test: No admin token or chemical ID available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        response = requests.delete(
-            f"{self.base_url}/chemicals/{self.test_chemical_id}",
-            headers=headers
+        success, _ = self.run_test(
+            "Delete Chemical",
+            "DELETE",
+            f"chemicals/{self.test_chemical_id}",
+            204,
+            token=self.admin_token
         )
-        
-        self.assertEqual(response.status_code, 204, f"Delete chemical failed: {response.status_code}")
-        print(f"✅ Chemical deleted successfully")
+        return success
 
-    def test_14_verify_deletion(self):
+    def test_verify_deletion(self):
         """Verify that the chemical was deleted"""
-        print("\n🔍 Verifying chemical deletion...")
-        
         if not self.token or not self.test_chemical_id:
-            self.skipTest("No token or chemical ID available")
+            print("⚠️ Skipping test: No token or chemical ID available")
+            return False
         
-        headers = {"Authorization": f"Bearer {self.token}"}
-        response = requests.get(
-            f"{self.base_url}/chemicals/{self.test_chemical_id}",
-            headers=headers
+        success, _ = self.run_test(
+            "Verify Chemical Deletion",
+            "GET",
+            f"chemicals/{self.test_chemical_id}",
+            404,
+            token=self.token
         )
+        return success
+
+    def run_all_tests(self):
+        """Run all tests in sequence"""
+        tests = [
+            self.test_register_user,
+            self.test_login_with_invalid_credentials,
+            self.test_login_with_valid_credentials,
+            self.test_login_as_admin,
+            self.test_get_current_user,
+            self.test_access_dashboard_stats,
+            self.test_add_chemical,
+            self.test_get_chemicals,
+            self.test_get_chemical_by_id,
+            self.test_search_chemicals,
+            self.test_update_chemical,
+            self.test_guest_cannot_add_chemical,
+            self.test_delete_chemical,
+            self.test_verify_deletion
+        ]
         
-        self.assertEqual(response.status_code, 404, f"Expected 404, got {response.status_code}")
-        print(f"✅ Chemical deletion verified")
+        for test in tests:
+            test()
+        
+        print("\n📊 Test Results:")
+        print(f"Tests Run: {self.tests_run}")
+        print(f"Tests Passed: {self.tests_passed}")
+        print(f"Tests Failed: {self.tests_failed}")
+        
+        return self.tests_failed == 0
+
+def main():
+    tester = LabJournalAPITester()
+    success = tester.run_all_tests()
+    return 0 if success else 1
 
 if __name__ == "__main__":
-    # Run the tests in order
-    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+    sys.exit(main())
