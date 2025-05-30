@@ -245,8 +245,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 def check_permission(required_permission: str):
     async def permission_dependency(current_user: User = Depends(get_current_user)):
-        user_permissions = ROLE_PERMISSIONS.get(current_user.role, [])
-        if required_permission not in user_permissions:
+        has_permission = await user_has_permission(current_user.role, required_permission)
+        if not has_permission:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return current_user
     return permission_dependency
