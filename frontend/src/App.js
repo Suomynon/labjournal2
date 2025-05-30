@@ -2135,23 +2135,46 @@ const UserForm = ({ user, onClose, onSave }) => {
 
 const Navigation = ({ currentView, setCurrentView }) => {
   const { user, logout } = useAuth();
+  const [userPermissions, setUserPermissions] = useState([]);
+
+  useEffect(() => {
+    if (user) {
+      fetchUserPermissions();
+    }
+  }, [user]);
+
+  const fetchUserPermissions = async () => {
+    try {
+      const response = await axios.get(`${API}/roles/${user.role}`);
+      setUserPermissions(response.data.permissions || []);
+    } catch (error) {
+      console.error('Failed to fetch user permissions:', error);
+      // Fallback to basic permissions based on role
+      const fallbackPermissions = {
+        admin: ["read", "write", "delete", "manage_users", "manage_roles"],
+        researcher: ["read", "write", "delete"],
+        student: ["read", "write"],
+        guest: ["read"]
+      };
+      setUserPermissions(fallbackPermissions[user?.role] || []);
+    }
+  };
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', permission: 'read' },
-    { id: 'chemicals', label: 'Chemical Inventory', permission: 'read' },
-    { id: 'experiments', label: 'Experiments', permission: 'read' },
-    { id: 'users', label: 'User Management', permission: 'manage_users' }
+    { id: 'dashboard', label: 'Dashboard', permission: 'view_dashboard' },
+    { id: 'chemicals', label: 'Chemical Inventory', permission: 'read_chemicals' },
+    { id: 'experiments', label: 'Experiments', permission: 'read_experiments' },
+    { id: 'users', label: 'User Management', permission: 'manage_users' },
+    { id: 'roles', label: 'Role Management', permission: 'manage_roles' }
   ];
 
   const hasPermission = (permission) => {
-    const userPermissions = {
-      admin: ["read", "write", "delete", "manage_users", "manage_roles"],
-      researcher: ["read", "write", "delete"],
-      student: ["read", "write"],
-      guest: ["read"]
-    };
-    
-    return userPermissions[user?.role]?.includes(permission) || false;
+    // Check both new permission names and legacy ones
+    return userPermissions.includes(permission) || 
+           userPermissions.includes('system_admin') ||
+           (permission === 'view_dashboard' && userPermissions.includes('read')) ||
+           (permission === 'read_chemicals' && userPermissions.includes('read')) ||
+           (permission === 'read_experiments' && userPermissions.includes('read'));
   };
 
   return (
