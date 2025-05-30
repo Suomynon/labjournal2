@@ -1151,6 +1151,7 @@ const AuthenticatedApp = ({ showLogin, setShowLogin, currentView, setCurrentView
         <div className="px-4 py-6 sm:px-0">
           {currentView === 'dashboard' && <Dashboard />}
           {currentView === 'chemicals' && <ChemicalInventory />}
+          {currentView === 'users' && <UserManagement />}
         </div>
       </main>
     </div>
