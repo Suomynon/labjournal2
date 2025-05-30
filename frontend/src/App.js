@@ -1959,8 +1959,22 @@ const UserForm = ({ user, onClose, onSave }) => {
     role: user?.role || 'guest',
     is_active: user?.is_active !== undefined ? user.is_active : true
   });
+  const [availableRoles, setAvailableRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const response = await axios.get(`${API}/roles`);
+      setAvailableRoles(response.data);
+    } catch (error) {
+      console.error('Failed to fetch roles:', error);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -2076,10 +2090,11 @@ const UserForm = ({ user, onClose, onSave }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
             >
-              <option value="guest">Guest</option>
-              <option value="student">Student</option>
-              <option value="researcher">Researcher</option>
-              <option value="admin">Admin</option>
+              {availableRoles.map((role) => (
+                <option key={role.name} value={role.name}>
+                  {role.display_name}
+                </option>
+              ))}
             </select>
           </div>
 
