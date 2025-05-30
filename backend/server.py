@@ -36,6 +36,35 @@ api_router = APIRouter(prefix="/api")
 # Security
 security = HTTPBearer()
 
+# Role and Permission Models
+class Permission(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # e.g., "read_chemicals", "write_experiments"
+    description: str
+    category: str  # e.g., "chemicals", "experiments", "users", "system"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Role(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str  # e.g., "admin", "researcher", "lab_manager"
+    display_name: str  # e.g., "Administrator", "Senior Researcher"
+    description: str
+    permissions: List[str] = []  # List of permission names
+    is_system: bool = False  # True for predefined roles (admin, researcher, etc.)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RoleCreate(BaseModel):
+    name: str
+    display_name: str
+    description: str
+    permissions: List[str] = []
+
+class RoleUpdate(BaseModel):
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    permissions: Optional[List[str]] = None
+
 # User Roles and Permissions
 class UserRole(str, Enum):
     ADMIN = "admin"
